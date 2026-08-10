@@ -5,7 +5,9 @@ on:
     types: [opened, reopened]
 
 permissions:
-  contents: read
+  # push-level access needed by the collaborator-permission API
+  # otherwise `author_association` is unreliable for private org members.
+  contents: write
   issues: write
   pull-requests: write
 
