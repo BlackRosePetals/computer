@@ -89,11 +89,23 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Capture the release plan
+        if: steps.pending-changesets.outputs.present == 'true'
+        run: npx changeset status --output .changeset/release-status.json
+
       - name: Version packages
         if: steps.pending-changesets.outputs.present == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node .github/changeset-version.mjs
+
+      - name: Build the Version Packages PR body
+        if: steps.pending-changesets.outputs.present == 'true'
+        run: |
+          trap 'rm -f .changeset/release-status.json' EXIT
+          node .github/changeset-pr-body.mjs \
+            .changeset/release-status.json \
+            "$RUNNER_TEMP/changeset-pr-body.md"
 
       # changesets/action fixes its branch name to changeset-release/<base>.
       # Use create-pull-request so the stable Version Packages branch is the
@@ -109,10 +121,7 @@ jobs:
           committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           title: Version Packages
-          body: |
-            This pull request applies the pending changesets to package versions,
-            changelogs, the lockfile, and computerd image pins. Merge it to publish
-            the release.
+          body-path: ${{ runner.temp }}/changeset-pr-body.md
 
       - name: Close the old Version Packages PR
         if: steps.version-pr.outputs.pull-request-number
