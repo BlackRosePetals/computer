@@ -2,4 +2,4 @@
 "@cloudflare/computer": minor
 ---
 
-Add bounded `find` and `grep` tools, a read-only-aware `delete` tool, and shared locking for file mutations.
+Updated `find` and `grep` tools to support additional filtering parameters, a `delete` tool.

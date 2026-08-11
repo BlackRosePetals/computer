@@ -2,4 +2,4 @@
 "@cloudflare/computer": minor
 ---
 
-Heavy worker-shell commands are now opt-in to reduce the final bundle size. See the [documentation](/docs/12_worker_backend.md) for details.
+Reduced the size of bundles using worker-shell by making many commands opt-in. See the [documentation](/docs/12_worker_backend.md) for details.

@@ -2,4 +2,4 @@
 "@cloudflare/computer": minor
 ---
 
-Configure ambient network access consistently across execution backends.
+Consolidate egress configuration across the existing backends. See [./examples/egress](./examples/egress) for details.
