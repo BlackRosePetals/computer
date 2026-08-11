@@ -4,12 +4,12 @@
 # build siblings whose dist/ this package's typecheck depends on,
 # then run biome + typecheck + tests scoped to that package.
 #
-# Runs on every PR and on every push to main or next, so a merge
-# that slipped through (admin override, branch protection off,
-# etc.) still gets the same lint/build/typecheck/test signal.
+# Runs on every PR and on pushes to the long-lived branches. The release
+# workflow also dispatches CI for the release branch because its GITHUB_TOKEN
+# push cannot start another workflow.
 #
-# Path filter skips pure documentation changes — they have no
-# influence on any package's lint, typecheck, or test surface.
+# Path filters skip pure documentation changes — they have no influence on
+# any package's lint, typecheck, or test surface.
 
 name: CI
 
@@ -20,21 +20,22 @@ on:
       - "docs/**"
       - ".github/**/*.md"
   push:
-    branches: [main, next]
+    branches: [main, next, release]
     paths-ignore:
       - "**/*.md"
       - "docs/**"
       - ".github/**/*.md"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 concurrency:
-  # PRs key on the PR number so successive pushes cancel the prior
-  # run; pushes to main key on the ref so we never cancel a main
-  # build (those are the historical signal).
+  # PRs key on the PR number so successive pushes cancel the prior run. The
+  # version branch also keeps only its newest run, while main builds remain a
+  # historical signal and are never canceled.
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/release' }}
 
 jobs:
   package:
@@ -190,7 +191,11 @@ jobs:
 
   preview:
     name: preview package
-    if: github.event_name == 'pull_request'
+    if: >-
+      ${{
+        (github.event_name == 'pull_request' && github.head_ref != 'release') ||
+        github.ref == 'refs/heads/release'
+      }}
     needs: [package, example]
     runs-on: ubuntu-24.04
     timeout-minutes: 15

@@ -1,20 +1,19 @@
-# Build the computerd image from the commit that passed CI on main. The
-# mutable :main tag gives tests and examples that follow main a fresh binary
-# without waiting for the changesets release flow.
+# Build computerd images from commits that passed CI. The mutable :main tag
+# follows main, while :next follows the changesets Version Packages branch.
 
-name: Main computerd image
+name: Computerd branch image
 
 on:
   workflow_run:
     workflows: ["CI"]
-    branches: [main]
+    branches: [main, release]
     types: [completed]
   workflow_dispatch: {}
 
 concurrency:
-  group: ${{ github.workflow }}
-  # If main advances while an image is building, only the newest commit
-  # should be allowed to publish the mutable :main tag.
+  # Keep the main and next publishers independent while allowing newer commits
+  # on either branch to cancel stale image builds for the same tag.
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -30,11 +29,23 @@ jobs:
           (
             github.event_name == 'workflow_run' &&
             github.event.workflow_run.conclusion == 'success' &&
-            github.event.workflow_run.event == 'push' &&
-            github.event.workflow_run.head_branch == 'main' &&
+            (
+              github.event.workflow_run.event == 'push' ||
+              github.event.workflow_run.event == 'workflow_dispatch'
+            ) &&
+            (
+              github.event.workflow_run.head_branch == 'main' ||
+              github.event.workflow_run.head_branch == 'release'
+            ) &&
             github.event.workflow_run.head_repository.full_name == github.repository
           ) ||
-          (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+          (
+            github.event_name == 'workflow_dispatch' &&
+            (
+              github.ref == 'refs/heads/main' ||
+              github.ref == 'refs/heads/release'
+            )
+          )
         )
       }}
     runs-on: ubuntu-24.04
@@ -46,6 +57,26 @@ jobs:
           # exact commit whose CI run succeeded instead.
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
           fetch-depth: 1
+
+      - name: Select the mutable image tag
+        id: image
+        env:
+          SOURCE_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
+        run: |
+          case "$SOURCE_BRANCH" in
+            main)
+              tag=main
+              ;;
+            release)
+              tag=next
+              ;;
+            *)
+              echo "Unsupported source branch: $SOURCE_BRANCH" >&2
+              exit 1
+              ;;
+          esac
+          echo "branch=$SOURCE_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - uses: ./.github/actions/install
 
@@ -86,26 +117,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # A slower CI run for an older main commit can finish after a newer
-      # one. Do not let that run replace the newer image.
-      - name: Verify main has not advanced
-        id: main-sha
+      # A slower CI run for an older commit can finish after a newer one. Do
+      # not let that run replace the newer branch image.
+      - name: Verify the source branch has not advanced
+        id: branch-sha
+        env:
+          SOURCE_BRANCH: ${{ steps.image.outputs.branch }}
         run: |
-          git fetch --no-tags --depth=1 origin main
-          if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
-            echo "main advanced while this image was building; skipping the push"
+          git fetch --no-tags --depth=1 origin "$SOURCE_BRANCH"
+          if [[ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]]; then
+            echo "$SOURCE_BRANCH advanced while this image was building; skipping the push"
             echo "current=false" >> "$GITHUB_OUTPUT"
           else
             echo "current=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build and push the main image
-        if: steps.main-sha.outputs.current == 'true'
+      - name: Build and push the branch image
+        if: steps.branch-sha.outputs.current == 'true'
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
         run: |
           docker buildx build \
             --platform linux/amd64 \
             --push \
             --provenance=false \
-            --tag ghcr.io/cloudflare/computer-computerd-linux-x64:main \
+            --tag "ghcr.io/cloudflare/computer-computerd-linux-x64:$IMAGE_TAG" \
             --file packages/computer-computerd-linux-x64/Dockerfile \
             packages/computer-computerd-linux-x64
