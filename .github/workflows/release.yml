@@ -91,6 +91,8 @@ jobs:
 
       - name: Version packages
         if: steps.pending-changesets.outputs.present == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node .github/changeset-version.mjs
 
       # changesets/action fixes its branch name to changeset-release/<base>.
